@@ -1,0 +1,237 @@
+classdef Plotter < handle
+    properties
+        title_
+        xlabel_
+        y1label
+        y2label
+        legendLocation
+        traces
+        xdata
+        styles
+        yaxis
+        usingRightYaxis
+        traceLabels
+    end
+
+    methods
+        function obj = Plotter()
+            clear();
+            
+            obj.legendLocation = "best";
+            obj.usingRightYaxis = false;
+            obj.traces = {};
+            obj.xdata = {};
+            obj.styles = {};
+            obj.yaxis = {};
+            obj.traceLabels = {};
+        end
+
+        function addTrace(obj, label, traceInput, style, yaxis)
+            if nargin < 5
+                yaxis = false;
+            end
+            if nargin < 4 || isempty(style)
+                style = {};
+            elseif ischar(style) || isstring(style)
+                style = {char(style)};
+            elseif isnumeric(style) && isscalar(style)
+                style = {'LineWidth', style};
+            elseif iscell(style)
+            else
+                error('Invalid style format. Use string, number, or cell array of args.');
+            end
+
+            x = [];
+            if iscell(traceInput)
+                if numel(traceInput) == 2 && isnumeric(traceInput{1})
+                    trace = traceInput{1};
+                    x = traceInput{2};
+                elseif numel(traceInput) == 2 && ischar(traceInput{1})
+                    label = traceInput{1};
+                    trace = traceInput{2};
+                else
+                    error('Invalid traceInput cell format. Use {Y, X} or {label, Y}.');
+                end
+            else
+                trace = traceInput;
+            end
+
+            if istable(trace)
+                trace = trace{:,1};
+            end
+            if istable(x)
+                x = x{:,1};
+            end
+
+            if isempty(label)
+                if istable(trace)
+                    label = trace.Properties.VariableNames{1};
+                else
+                    label = sprintf('Trace %d', numel(obj.traces)+1);
+                end
+            end
+
+            obj.traces{end+1} = trace;
+            obj.xdata{end+1} = x;
+            obj.styles{end+1} = style;
+            obj.yaxis{end+1} = logical(yaxis);
+            obj.traceLabels{end+1} = label;
+            obj.usingRightYaxis = obj.usingRightYaxis || logical(yaxis);
+        end
+
+        function setTitle(obj, title)
+            obj.title_ = title;
+        end
+
+        function setXLabel(obj, label)
+            obj.xlabel_ = label;
+        end
+
+        function setYLabel(obj, label)
+            obj.y1label = label;
+        end
+
+        function setY1Label(obj, label)
+            obj.y1label = label;
+        end
+
+        function setY2Label(obj, label)
+            obj.y2label = label;
+            obj.usingRightYaxis = true;
+        end
+
+        function setLegendLocation(obj, loc)
+            obj.legendLocation = loc;
+        end
+
+        function plot(obj, plotAgainst, varargin)
+            if nargin < 2
+                plotAgainst = [];
+            end
+
+            hold on;
+
+            if ~isempty(obj.title_)
+                title(obj.title_);
+            end
+            if ~isempty(obj.xlabel_)
+                xlabel(obj.xlabel_);
+            end
+            if ~isempty(obj.y1label)
+                ylabel(obj.y1label);
+            end
+            if obj.usingRightYaxis && ~isempty(obj.y2label)
+                yyaxis right;
+                ylabel(obj.y2label);
+                yyaxis left;
+            end
+
+            hList = gobjects(1, numel(obj.traces));
+            for i = 1:numel(obj.traces)
+                if obj.yaxis{i}
+                    yyaxis right;
+                else
+                    yyaxis left;
+                end
+
+                style = obj.styles{i};
+                lineSpec = '';
+                if ~isempty(style) && ischar(style{1})
+                    lineSpec = style{1};
+                    style = style(2:end);
+                end
+
+                x = obj.xdata{i};
+                if isempty(x)
+                    x = plotAgainst;
+                end
+
+                if isempty(x)
+                    if isempty(lineSpec)
+                        h = plot(obj.traces{i});
+                    else
+                        h = plot(obj.traces{i}, lineSpec);
+                    end
+                else
+                    if isempty(lineSpec)
+                        h = plot(x, obj.traces{i});
+                    else
+                        h = plot(x, obj.traces{i}, lineSpec);
+                    end
+                end
+
+                if ~isempty(style)
+                    for k = 1:2:numel(style)
+                        if k+1 <= numel(style)
+                            set(h, style{k}, style{k+1});
+                        end
+                    end
+                end
+
+                hList(i) = h;
+            end
+
+            legend(hList, obj.traceLabels, 'Location', obj.legendLocation);
+            grid on;
+            grid minor;
+
+            yyaxis left;
+            ydata_left = [];
+            for i = 1:numel(obj.traces)
+                if ~obj.yaxis{i}
+                    ydata_left = [ydata_left; obj.traces{i}(:)];
+                end
+            end
+            if ~isempty(ydata_left)
+                ymin = min(ydata_left);
+                ymax = max(ydata_left);
+                margin = 0.01 * (ymax - ymin);
+                ylim([ymin - margin, ymax + margin]);
+            end
+
+            if obj.usingRightYaxis
+                yyaxis right;
+                ydata_right = [];
+                for i = 1:numel(obj.traces)
+                    if obj.yaxis{i}
+                        ydata_right = [ydata_right; obj.traces{i}(:)];
+                    end
+                end
+                if ~isempty(ydata_right)
+                    ymin = min(ydata_right);
+                    ymax = max(ydata_right);
+                    margin = 0.1*(ymax - ymin);
+                    if ymin == ymax
+                        ymin = ymin - 0.1;
+                        ymax = ymax + 0.1;
+                    end
+                    ylim([ymin - margin, ymax + margin]);
+                end
+            else
+                yyaxis right;
+                set(gca, 'YTick', []);
+            end
+
+            hold off;
+        end
+    end
+
+    methods (Static)
+        function export(fname, varargin)
+            outdir = 'output';
+            if ~exist(outdir, 'dir')
+                mkdir(outdir);
+            end
+            if nargin < 1 || isempty(fname)
+                fname = char(java.util.UUID.randomUUID);
+            end
+            fname = strcat(fname, ".png");
+            fname = fullfile(outdir, fname);
+            exportgraphics(gcf, fname, varargin{:});
+        end
+
+        function clear()
+            clf reset;
+        end
+    end
+end
